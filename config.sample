@@ -1,7 +1,8 @@
 #!/bin/bash
 
-MOUNTPOINT="~/owfs" # The directory in which you mounted OWFS. REQUIRED.
-BUSDIR="bus.0"
+MOUNTPOINT="/home/ben/owfs" # The directory in which you mounted OWFS. REQUIRED.
+BUSDIR="bus.0" # The USB bus dir. Probabbly don't change this.
 FAMILY="21" # The family of data loggers. See owfs man pages but probably do not change this.
-ROLLOVER="true" # Do you want the data to rollover when the memory is full
+ROLLOVER=true # Do you want the data to rollover when the memory is full
 FREQUENCY="5" # In minutes
+ISUSB=true # Is the reader usb?

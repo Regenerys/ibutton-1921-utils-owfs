@@ -2,4 +2,49 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+# Checks the vars are set before running
 source config
+if [ -z "$MOUNTPOINT" ] || [ -z "$BUSDIR" ] || [ -z "$FAMILY" ] || [ -z "$ROLLOVER" ] || [ -z "$FREQUENCY" ]
+then
+    echo "You are missing a required option. Open the config file and set the correct parameters."
+    exit 1
+fi
+
+# Functions
+
+function checkDevice {
+
+    # Check for mount point
+    if [ ! -d "$MOUNTPOINT" ]
+    then
+        mkdir "$MOUNTPOINT"
+    fi
+
+    # Check USB is true
+    if [ "$ISUSB" = true ]
+    then
+        set +e
+        owfs mount -u -m "$MOUNTPOINT" # Mount owfs
+        pgrep owfs > /dev/null # Check it mounted
+        if [ $? -ne 0 ]; then
+            echo "Probe not detected or OWFS not running."   
+            read -p "Press enter to retry or ctrl+c to quit."
+            checkDevice
+        fi
+        set -e
+    else
+        echo "Device must be USB for now. Exiting"
+        exit 1
+    fi
+
+}
+
+#clean to start owfs
+killall owfs || true
+
+checkDevice
+
+#end owfs
+killall owfs || true
+
+exit
