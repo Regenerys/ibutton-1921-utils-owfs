@@ -10,15 +10,60 @@ then
     exit 1
 fi
 
+# Set some more vars
+JOBDIR="$OUTPUTDIR/provision-$(date +%F_%H%M)"
+DUMPDIR="$JOBDIR/data"
+LOGFILE="$JOBDIR/provision.log"
+STATEFILE="$JOBDIR/provision.state"
+
 # Functions
 
-function checkDevice {
+# Starts the logfile
+function startLog {
 
-    # Check for mount point
-    if [ ! -d "$MOUNTPOINT" ]
-    then
-        mkdir "$MOUNTPOINT"
-    fi
+cat << _EOF_ > "$LOGFILE"
+IBUTTON 1921 PROVISIONING LOG
+
+$(date)
+
+User: $(whoami)
+
+COFIGURATION:
+
+ROLLOVER: $ROLLOVER
+FREQUENCY: $FREQUENCY
+DUMPDATA: $DUMPDATA
+DELAY: $DELAY
+OUTPUTDIR: $OUTPUTDIR
+MEMORY: $MEMORY
+
+LOGGERS PROVISIONED:
+
+_EOF_
+
+}
+
+# Ends the logfile
+function endLog {
+
+TOTALCOUNT="$(wc -l < $STATEFILE)"
+
+cat << _EOF_ >> "$LOGFILE"
+
+TOTAL: $TOTALCOUNT
+_EOF_
+
+}
+
+# Checks for the mountpoint
+function checkMount {
+
+    mkdir -p "$MOUNTPOINT"
+
+}
+
+# Checks for the reader and process
+function checkDevice {
 
     # Check USB is true
     if [ "$ISUSB" = true ]
@@ -26,8 +71,9 @@ function checkDevice {
         set +e
         owfs mount -u -m "$MOUNTPOINT" # Mount owfs
         pgrep owfs > /dev/null # Check it mounted
-        if [ $? -ne 0 ]; then
-            echo "Probe not detected or OWFS not running."   
+        if [ $? -ne 0 ]
+        then
+            echo "Reader not detected or OWFS not running."
             read -p "Press enter to retry or ctrl+c to quit."
             checkDevice
         fi
@@ -39,12 +85,134 @@ function checkDevice {
 
 }
 
-#clean to start owfs
-killall owfs || true
+# Makes the directories
+function makeOutputDirs {
 
+    mkdir -p "$OUTPUTDIR"
+
+    mkdir "$JOBDIR"
+
+    if [ "$DUMPDATA" = true ]
+    then
+        mkdir "$DUMPDIR"
+    fi
+
+}
+
+# Checks for the probe
+function checkLogger {
+
+    set +e
+    cd "$MOUNTPOINT/$BUSDIR/$FAMILY"* > /dev/null 2>&1 # Dumb but works - ensures 1 probe is connected
+    if [ $? -ne 0 ]
+    then
+        echo "Probe not connected or too many probes!"
+        read -p "Connect probe and press enter to retry."
+        checkLogger
+    else
+        PROBEDIR="$(pwd)" # Set the dir for the probe
+        MISSION="$PROBEDIR/mission"
+        CLOCK="$PROBEDIR/clock"
+        ID="$(cat $PROBEDIR/r_id)" # Set the id (reversed because it's reversed on the probe)
+        echo "$ID connected"
+        if grep -Fxq "$ID" "$STATEFILE" # Check probe hasn't already been done
+        then
+            echo "Probe already provisioned this run."
+            read -r -p "Press N for next logger. Press I to ignore and provision anyway." response
+            response=${response,,}
+            if [[ "$response" =~ ^(next|n)$ ]]
+            then
+                checkLogger
+            fi
+        fi
+    fi
+    set -e
+
+}
+
+# Provisions the logger
+function provisionLogger {
+
+    # See if logger is connected
+    checkLogger
+
+    echo "Provisioning $ID"
+
+    # Stop the mission, clear the data
+    echo 0 > "$MISSION/enable"
+    echo 1 > "$MISSION/clear"
+
+    # Start and set the clock
+    echo 1 > "$CLOCK/running"
+    echo "$(date +%s)" > "$CLOCK/udate"
+
+    # Set the persistent memory
+    echo "$MEMORY" > "$PROBEDIR/memory"
+
+    # Set params
+    if [ "$ROLLOVER" = true ]
+    then
+        echo 1 > "$MISSION/rollover"
+    else
+        echo 0 > "$MISSION/rollover"
+    fi
+    echo "$DELAY" > "$MISSION/delay"
+    echo 1 > "$MISSION/enable"
+    echo "$FREQUENCY" > "$MISSION/frequency"
+
+    # Write to log if applicable
+    if [ "$LOGGING" = true ]
+    then
+        echo "$ID" >> "$LOGFILE"
+    fi
+    echo "$ID" >> "$STATEFILE" # Write to the statefile
+    echo "Done! Another?"
+    read -r -p "Press N for next logger. Press Q to quit and finish." response
+    response=${response,,}
+    if [[ "$response" =~ ^(quit|q)$ ]]
+    then
+        echo "Tidying up and exiting"
+    else
+        provisionLogger
+    fi
+
+}
+
+#clean to start owfs
+killall owfs > /dev/null 2>&1 || true
+
+# Check and make the dirs
+makeOutputDirs
+
+# Start logging if true
+if [ "$LOGGING" = true ]
+then
+    startLog
+fi
+
+# Set up the statefile
+touch "$STATEFILE"
+
+checkMount
+
+# Check USB device is connected
 checkDevice
 
-#end owfs
+#dumpData #coming soon!
+
+# Do the deed
+provisionLogger
+
+# end owfs
 killall owfs || true
+
+# Stop logging
+if [ "$LOGGING" = true ]
+then
+    endLog
+fi
+
+# Dump the statefile
+rm "$STATEFILE"
 
 exit
