@@ -114,6 +114,13 @@ function checkLogger {
         MISSION="$PROBEDIR/mission"
         CLOCK="$PROBEDIR/clock"
         ID="$(cat $PROBEDIR/r_id)" # Set the id (reversed because it's reversed on the probe)
+        PROBELOG="$PROBEDIR/log"
+        MISSIONSTART="$(cat $MISSION/udate)"
+        DATESTART="$(cat $MISSION/date)"
+        REALFREQUENCY="$(cat $MISSION/frequency)"
+        SAMPLES="$(cat $MISSION/samples)"
+        REALROLLOVER="$(cat $MISSION/rollover)"
+        ELEMENTS="$(cat $PROBELOG/elements)"
         echo "$ID connected"
         if grep -Fxq "$ID" "$STATEFILE" # Check probe hasn't already been done
         then
@@ -130,11 +137,51 @@ function checkLogger {
 
 }
 
+function dumpData {
+
+    echo "Dumping data"
+
+    TMPF=$(mktemp -t tmp.ibm.XXXXXXXX)
+    DUMPFILE="$DUMPDIR/$ID.txt"
+
+    if [ "$ELEMENTS" == 0 ]
+    then
+        echo "No elements to read"
+        return 0
+    fi
+
+    if [ "$REALROLLOVER" == "0" ]
+    then
+        ((MISSIONEND=MISSIONSTART+(ELEMENTS-1)*REALFREQUENCY*60))
+    else
+        ((MISSIONEND=MISSIONSTART+(SAMPLES-1)*REALFREQUENCY*60))
+        #calculate new missionstart for the case that rollover is enabled and samples > elements
+        ((MISSIONSTART=MISSIONEND-ELEMENTS*REALFREQUENCY*60))
+    fi
+
+    cat "$PROBELOG/temperature.ALL" | sed -e 's/ //g; s/,/\n/g' > $TMPF
+    readarray -t TEMPERATURES < $TMPF
+    echo "Missionstart;$DATESTART;Mission start;$MISSIONSTART;Mission end;$MISSIONEND;Frequency[min];$REALFREQUENCY;Elements;$ELEMENTS" > "$DUMPFILE"
+
+    ((ELEMENTS--))
+    for i in $(seq 0 $ELEMENTS); do
+            ((TM=MISSIONSTART+(i*REALFREQUENCY*60)))
+            TM="$(date -d @$TM +%F_%H%M)"
+            echo -e "$TM;${TEMPERATURES[$i]}" 
+    done >> "$DUMPFILE"
+
+}
+
 # Provisions the logger
 function provisionLogger {
 
     # See if logger is connected
     checkLogger
+
+    if [ "$DUMPDATA" = true ]
+    then
+        dumpData
+    fi
 
     echo "Provisioning $ID"
 
@@ -165,7 +212,9 @@ function provisionLogger {
     then
         echo "$ID" >> "$LOGFILE"
     fi
+
     echo "$ID" >> "$STATEFILE" # Write to the statefile
+
     echo "Done! Another?"
     read -r -p "Press N for next logger. Press Q to quit and finish." response
     response=${response,,}
@@ -198,8 +247,6 @@ checkMount
 # Check USB device is connected
 checkDevice
 
-#dumpData #coming soon!
-
 # Do the deed
 provisionLogger
 
@@ -214,5 +261,10 @@ fi
 
 # Dump the statefile
 rm "$STATEFILE"
+
+if [ "$LOGGING" = false ] && [ "$DUMPDATA" = false ]
+then
+    rm -r "$JOBDIR"
+fi
 
 exit
