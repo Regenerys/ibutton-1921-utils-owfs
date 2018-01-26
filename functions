@@ -1,0 +1,257 @@
+#!/bin/bash
+set -euo pipefail
+IFS=$'\n\t'
+
+# Checks the vars are set before running
+source config
+if [ -z "$MOUNTPOINT" ] || [ -z "$BUSDIR" ] || [ -z "$FAMILY" ] || [ -z "$ROLLOVER" ] || [ -z "$FREQUENCY" ]
+then
+    echo "You are missing a required option. Open the config file and set the correct parameters."
+    exit 1
+fi
+
+# Set some more vars
+
+if [ "$TYPE" = "provision" ]
+then
+    JOBDIR="$OUTPUTDIR/provision-$(date +%F_%H%M)"
+fi
+DUMPDIR="$JOBDIR/data"
+LOGFILE="$JOBDIR/job.log"
+STATEFILE="$JOBDIR/job.state"
+
+# Functions
+
+# Kills owfs
+function killOwfs {
+    killall owfs > /dev/null 2>&1 || true
+}
+
+# Starts the logfile
+function startLog {
+
+    if [ "$TYPE" = "provision" ]
+    then
+cat << _EOF_ > "$LOGFILE"
+IBUTTON 1921 PROVISIONING LOG
+
+$(date)
+
+User: $(whoami)
+
+COFIGURATION:
+
+ROLLOVER: $ROLLOVER
+FREQUENCY: $FREQUENCY
+DUMPDATA: $DUMPDATA
+DELAY: $DELAY
+OUTPUTDIR: $OUTPUTDIR
+MEMORY: $MEMORY
+
+LOGGERS PROVISIONED:
+
+_EOF_
+    fi
+
+}
+
+# Ends the logfile
+function endLog {
+
+if [ "$TYPE" = "provision" ]
+then
+    TOTALCOUNT="$(wc -l < $STATEFILE)"
+
+cat << _EOF_ >> "$LOGFILE"
+
+TOTAL: $TOTALCOUNT
+_EOF_
+    fi
+
+}
+
+# Checks for the reader and process
+function checkDevice {
+
+    # Check USB is true
+    mkdir -p "$MOUNTPOINT"
+    if [ "$ISUSB" = true ]
+    then
+        set +e
+        owfs mount -u -m "$MOUNTPOINT" # Mount owfs
+        pgrep owfs > /dev/null # Check it mounted
+        if [ $? -ne 0 ]
+        then
+            echo "Reader not detected or OWFS not running."
+            read -p "Press enter to retry or ctrl+c to quit."
+            checkDevice
+        fi
+        set -e
+    else
+        echo "Device must be USB for now. Exiting"
+        exit 1
+    fi
+
+}
+
+# Makes the directories
+function makeOutputDirs {
+
+    mkdir -p "$OUTPUTDIR"
+
+    if [ "$DUMPDATA" = true ] || [ "$LOGGING" = true ]
+    then
+        mkdir "$JOBDIR"
+    fi
+
+    if [ "$DUMPDATA" = true ]
+    then
+        mkdir "$DUMPDIR"
+    fi
+
+}
+
+# Checks for the probe
+function checkLogger {
+
+    set +e
+    cd "$MOUNTPOINT/$BUSDIR/$FAMILY"* > /dev/null 2>&1 # Dumb but works - ensures 1 probe is connected
+    if [ $? -ne 0 ]
+    then
+        echo "Probe not connected or too many probes!"
+        read -p "Connect probe and press enter to retry."
+        checkLogger
+    else
+        PROBEDIR="$(pwd)" # Set the dir for the probe
+        MISSION="$PROBEDIR/mission"
+        CLOCK="$PROBEDIR/clock"
+        ID="$(cat $PROBEDIR/r_id)" # Set the id (reversed because it's reversed on the probe)
+        PROBELOG="$PROBEDIR/log"
+        MISSIONSTART="$(cat $MISSION/udate)"
+        DATESTART="$(cat $MISSION/date)"
+        REALFREQUENCY="$(cat $MISSION/frequency)"
+        SAMPLES="$(cat $MISSION/samples)"
+        REALROLLOVER="$(cat $MISSION/rollover)"
+        ELEMENTS="$(cat $PROBELOG/elements)"
+        echo "$ID connected"
+
+        # Check statefile when provisioning
+        if [ "$TYPE" = "provision" ]
+        then
+            if grep -Fxq "$ID" "$STATEFILE" # Check probe hasn't already been done
+            then
+                echo "Probe already provisioned this run."
+                read -r -p "Press N for next logger. Press I to ignore and provision anyway." response
+                response=${response,,}
+                if [[ "$response" =~ ^(next|n)$ ]]
+                then
+                    checkLogger
+                fi
+            fi
+        fi
+    fi
+    set -e
+
+}
+
+function dumpData {
+
+    echo "Dumping data"
+
+    TMPF=$(mktemp -t tmp.ibm.XXXXXXXX)
+    DUMPFILE="$DUMPDIR/$ID.txt"
+
+    if [ "$ELEMENTS" == 0 ]
+    then
+        echo "No elements to read"
+        return 0
+    fi
+
+    if [ "$REALROLLOVER" == "0" ]
+    then
+        ((MISSIONEND=MISSIONSTART+(ELEMENTS-1)*REALFREQUENCY*60))
+    else
+        ((MISSIONEND=MISSIONSTART+(SAMPLES-1)*REALFREQUENCY*60))
+        #calculate new missionstart for the case that rollover is enabled and samples > elements
+        ((MISSIONSTART=MISSIONEND-ELEMENTS*REALFREQUENCY*60))
+    fi
+
+    cat "$PROBELOG/temperature.ALL" | sed -e 's/ //g; s/,/\n/g' > $TMPF
+    readarray -t TEMPERATURES < $TMPF
+    echo "Missionstart;$DATESTART;Mission start;$MISSIONSTART;Mission end;$MISSIONEND;Frequency[min];$REALFREQUENCY;Elements;$ELEMENTS" > "$DUMPFILE"
+
+    ((ELEMENTS--))
+    for i in $(seq 0 $ELEMENTS); do
+            ((TM=MISSIONSTART+(i*REALFREQUENCY*60)))
+            TM="$(date -d @$TM +%F_%H%M)"
+            echo -e "$TM;${TEMPERATURES[$i]}" 
+    done >> "$DUMPFILE"
+
+}
+
+# Provisions the logger
+function provisionLogger {
+
+    # See if logger is connected
+    checkLogger
+
+    if [ "$DUMPDATA" = true ]
+    then
+        dumpData
+    fi
+
+    echo "Provisioning $ID"
+
+    # Stop the mission, clear the data
+    echo 0 > "$MISSION/enable"
+    echo 1 > "$MISSION/clear"
+
+    # Start and set the clock
+    echo 1 > "$CLOCK/running"
+    echo "$(date +%s)" > "$CLOCK/udate"
+
+    # Set the persistent memory
+    echo "$MEMORY" > "$PROBEDIR/memory"
+
+    # Set params
+    if [ "$ROLLOVER" = true ]
+    then
+        echo 1 > "$MISSION/rollover"
+    else
+        echo 0 > "$MISSION/rollover"
+    fi
+    echo "$DELAY" > "$MISSION/delay"
+    echo 1 > "$MISSION/enable"
+    echo "$FREQUENCY" > "$MISSION/frequency"
+
+    # Write to log if applicable
+    if [ "$LOGGING" = true ]
+    then
+        echo "$ID" >> "$LOGFILE"
+    fi
+
+    echo "$ID" >> "$STATEFILE" # Write to the statefile
+
+    echo "Done! Another?"
+    read -r -p "Press N for next logger. Press Q to quit and finish." response
+    response=${response,,}
+    if [[ "$response" =~ ^(quit|q)$ ]]
+    then
+        echo "Tidying up and exiting"
+    else
+        provisionLogger
+    fi
+
+}
+
+function cleanUp {
+    if [ "$TYPE" = "provision" ]
+    then
+        rm "$STATEFILE"
+
+        if [ "$LOGGING" = false ] && [ "$DUMPDATA" = false ]
+        then
+            rm -r "$JOBDIR"
+        fi
+    fi
+}
