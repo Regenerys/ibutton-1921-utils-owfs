@@ -7,13 +7,16 @@ These are bash script wrappers for the owfs - the one wire filesystem.
 
 Use them with DS1921 data loggers. You might be able to adapt them to use other loggers too.
 
+The focus of the project is to be able to provision and extract data from multiple buttons quickly and accurately.
+
+Right now there is only a script for provisioning. More should come soon, however look in the `functions` file to see functions you can re-use.
+
 They are intended for use on a Linux system and rely on a basic UNIX toolkit.
 
 [Make sure OWFS is installed first](http://owfs.org/)
 
-To get started, plug in your USB reader and do
+Then just `cd` to this directory and run
 
-    mkdir ~/owfs
-    owfs -u -m ~/owfs
+    ./provision
 
-Then your reader and button should be mounted as a filesystem in `~/owfs`
+It only works for USB but I have left it open to work with other readers.
