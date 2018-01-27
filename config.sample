@@ -10,4 +10,4 @@ ISUSB=true # Is the reader usb?
 OUTPUTDIR="/home/ben/logout" # Where to output data
 LOGGING=true # Where to write logs
 DUMPDATA=true # Dump the data before provisioning
-MEMORY="Property of Regenerys Limited. Provisioned on $(date)" # Message to put into memory
+MEMORY="Property of Jimmy Smith. Provisioned on $(date)" # Message to put into memory
