@@ -125,7 +125,7 @@ function checkLogger {
         PROBEDIR="$(pwd)" # Set the dir for the probe
         MISSION="$PROBEDIR/mission"
         CLOCK="$PROBEDIR/clock"
-        ID="$(cat $PROBEDIR/r_id)" # Set the id (reversed because it's reversed on the probe)
+        ADDRESS="$(cat $PROBEDIR/r_address)" # Set the id (reversed because it's reversed on the probe)
         PROBELOG="$PROBEDIR/log"
         MISSIONSTART="$(cat $MISSION/udate)"
         DATESTART="$(cat $MISSION/date)"
@@ -133,12 +133,12 @@ function checkLogger {
         SAMPLES="$(cat $MISSION/samples)"
         REALROLLOVER="$(cat $MISSION/rollover)"
         ELEMENTS="$(cat $PROBELOG/elements)"
-        echo "$ID connected"
+        echo "$ADDRESS connected"
 
         # Check statefile when provisioning
         if [ "$TYPE" = "provision" ]
         then
-            if grep -Fxq "$ID" "$STATEFILE" # Check probe hasn't already been done
+            if grep -Fxq "$ADDRESS" "$STATEFILE" # Check probe hasn't already been done
             then
                 echo "Probe already provisioned this run."
                 read -r -p "Press N for next logger. Press I to ignore and provision anyway." response
@@ -159,7 +159,7 @@ function dumpData {
     echo "Dumping data"
 
     TMPF=$(mktemp -t tmp.ibm.XXXXXXXX)
-    DUMPFILE="$DUMPDIR/$ID.txt"
+    DUMPFILE="$DUMPDIR/$ADDRESS.txt"
 
     if [ "$ELEMENTS" == 0 ]
     then
@@ -200,7 +200,7 @@ function provisionLogger {
         dumpData
     fi
 
-    echo "Provisioning $ID"
+    echo "Provisioning $ADDRESS"
 
     # Stop the mission, clear the data
     echo 0 > "$MISSION/enable"
@@ -227,10 +227,10 @@ function provisionLogger {
     # Write to log if applicable
     if [ "$LOGGING" = true ]
     then
-        echo "$ID" >> "$LOGFILE"
+        echo "$ADDRESS" >> "$LOGFILE"
     fi
 
-    echo "$ID" >> "$STATEFILE" # Write to the statefile
+    echo "$ADDRESS" >> "$STATEFILE" # Write to the statefile
 
     echo "Done! Another?"
     read -r -p "Press N for next logger. Press Q to quit and finish." response
