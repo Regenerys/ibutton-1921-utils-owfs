@@ -30,7 +30,7 @@ checkDevice
 provisionLogger
 
 # end owfs
-killall owfs || true
+killOwfs
 
 # Stop logging
 if [ "$LOGGING" = true ]

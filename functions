@@ -15,8 +15,12 @@ fi
 if [ "$TYPE" = "provision" ]
 then
     JOBDIR="$OUTPUTDIR/provision-$(date +%F_%H%M)"
+    DUMPDIR="$JOBDIR/data"
+elif [ "$TYPE" = "readSingle" ]
+then
+    JOBDIR="$OUTPUTDIR"
+    DUMPDIR="$OUTPUTDIR"
 fi
-DUMPDIR="$JOBDIR/data"
 LOGFILE="$JOBDIR/job.log"
 STATEFILE="$JOBDIR/job.state"
 
@@ -74,7 +78,7 @@ _EOF_
 function checkDevice {
 
     # Check USB is true
-    mkdir -p "$MOUNTPOINT"
+    mkdir -p "$MOUNTPOINT" || true
     if [ "$ISUSB" = true ]
     then
         set +e
@@ -88,7 +92,7 @@ function checkDevice {
         fi
         set -e
     else
-        echo "Device must be USB for now. Exiting"
+        echo "Device must be USB. Exiting"
         exit 1
     fi
 
@@ -97,16 +101,21 @@ function checkDevice {
 # Makes the directories
 function makeOutputDirs {
 
-    mkdir -p "$OUTPUTDIR"
+    mkdir -p "$OUTPUTDIR" || true
 
-    if [ "$DUMPDATA" = true ] || [ "$LOGGING" = true ]
+    if [ "$TYPE" = "provision" ]
     then
-        mkdir "$JOBDIR"
-    fi
 
-    if [ "$DUMPDATA" = true ]
-    then
-        mkdir "$DUMPDIR"
+        if [ "$DUMPDATA" = true ] || [ "$LOGGING" = true ]
+        then
+            mkdir "$JOBDIR"
+        fi
+
+        if [ "$DUMPDATA" = true ]
+        then
+            mkdir "$DUMPDIR"
+        fi
+
     fi
 
 }
@@ -159,6 +168,12 @@ function dumpData {
     echo "Dumping data"
 
     TMPF=$(mktemp -t tmp.ibm.XXXXXXXX)
+
+    if [ "$TYPE" = "readSingle" ]
+    then
+        checkLogger
+    fi
+
     DUMPFILE="$DUMPDIR/$ADDRESS.txt"
 
     if [ "$ELEMENTS" == 0 ]

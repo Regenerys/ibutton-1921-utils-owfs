@@ -1,0 +1,16 @@
+#!/bin/bash
+set -euo pipefail
+IFS=$'\n\t'
+
+TYPE=readSingle
+
+source functions
+
+#clean to start owfs
+killOwfs
+
+checkDevice
+
+dumpData
+
+killOwfs
