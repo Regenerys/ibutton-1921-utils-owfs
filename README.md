@@ -21,6 +21,7 @@ It only works for USB (the DS9490 I think) but I have left it open to work with 
 
 - [Make sure OWFS is installed first](http://owfs.org/)
 - Clone this repo to somewhere nice
+- Be sure to add the udev rule to your system
 
 ## Usage
 
